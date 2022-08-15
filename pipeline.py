@@ -26,6 +26,18 @@ class InconsistentDatasetError(Exception):
     """
 
 
+class UnknownTagsError(Exception):
+    """
+    Unknown tags type
+    """
+
+
+class UnknownCommandError(Exception):
+    """
+    Unknown parsing command
+    """
+
+
 class MorphologicalToken:
     """
     Stores language params for each processed token
@@ -43,15 +55,20 @@ class MorphologicalToken:
         """
         return self.original_word.lower()
 
-    def get_single_tagged(self):
+    def get_single_tagged(self, tags):
         """
-        Returns normalized lemma with MyStem tags
+        Returns normalized lemma with MyStem or PyMorphy tags
         """
-        return f'{self.normalized_form}<{self.tags_mystem}>'
+        if tags == 'mystem':
+            return f'{self.normalized_form}<{self.tags_mystem}>'
+        elif tags == 'pymorphy':
+            return f'{self.normalized_form}({self.tags_pymorphy})'
+        raise UnknownTagsError(f'NO SUCH TAGS TYPE {tags}.'
+                               f'AVAILABLE TAGS TYPES: "mystem" AND "pymorphy".')
 
     def get_multiple_tagged(self):
         """
-        Returns normalized lemma with PyMorphy tags
+        Returns normalized lemma with MyStem and PyMorphy tags
         """
         return f'{self.normalized_form}<{self.tags_mystem}>({self.tags_pymorphy})'
 
@@ -95,27 +112,51 @@ class TextProcessingPipeline:
     def __init__(self, corpus_manager: CorpusManager):
         self.corpus_manager = corpus_manager
 
-    def run(self):
+    def run(self, process):
         """
         Runs pipeline process scenario
         """
+        print('PROCESSING...')
+        commands = process.split(', ')
+
         for article in self.corpus_manager.get_articles().values():
-            tokens = self._process(article.get_raw_text())
+            tokens = self._process(article.get_raw_text(), commands)
             tokenized_text = ' '.join(tokens[0])
             tokenized_mystem_text = ' '.join(tokens[1])
-            tokenized_double_tagged_text = ' '.join(tokens[2])
+            tokenized_pymorphy_text = ' '.join(tokens[2])
+            tokenized_double_tagged_text = ' '.join(tokens[3])
 
-            article.save_as(text=tokenized_text, kind=ArtifactType.cleaned)
-            article.save_as(text=tokenized_mystem_text, kind=ArtifactType.single_tagged)
-            article.save_as(text=tokenized_double_tagged_text, kind=ArtifactType.multiple_tagged)
+            for command in commands:
+                if command == 'clean text':
+                    article.save_as(text=tokenized_text, kind=ArtifactType.cleaned)
+                elif command == 'mystem tagging':
+                    article.save_as(text=tokenized_mystem_text,
+                                    kind=ArtifactType.single_tagged_mystem)
+                elif command == 'pymorphy tagging':
+                    article.save_as(text=tokenized_pymorphy_text,
+                                    kind=ArtifactType.single_tagged_pymorphy)
+                elif command == 'multiple tagging':
+                    article.save_as(text=tokenized_double_tagged_text,
+                                    kind=ArtifactType.multiple_tagged)
+                elif command == 'all':
+                    article.save_as(text=tokenized_text, kind=ArtifactType.cleaned)
+                    article.save_as(text=tokenized_mystem_text,
+                                    kind=ArtifactType.single_tagged_mystem)
+                    article.save_as(text=tokenized_pymorphy_text,
+                                    kind=ArtifactType.single_tagged_pymorphy)
+                    article.save_as(text=tokenized_double_tagged_text,
+                                    kind=ArtifactType.multiple_tagged)
 
-    def _process(self, raw_text: str):
+            print(f'FILE №{article.article_id} COMPLETED.')
+
+    def _process(self, raw_text: str, commands):
         """
         Processes each token and creates MorphToken class instance
         """
         tokens = []
         cleaned_tokens = []
         mystem_tokens = []
+        pymorphy_tokens = []
         multiple_tagged_tokens = []
 
         transferences_and_footers = re.compile(r'(-\n)|(\d+\s+[^\n]([А-Я]\.)+\s[А-Яа-я]+\s\n)'
@@ -134,12 +175,29 @@ class TextProcessingPipeline:
 
                 mystem_token.tags_pymorphy = morph.parse(mystem_token.original_word)[0].tag
 
-                cleaned_tokens.append(MorphologicalToken(mystem_token.original_word).get_cleaned())
-                mystem_tokens.append(mystem_token.get_single_tagged())
-                multiple_tagged_tokens.append(mystem_token.get_multiple_tagged())
+                for command in commands:
+                    if command == 'clean text':
+                        cleaned_tokens.append(MorphologicalToken(mystem_token.original_word).
+                                              get_cleaned())
+                    elif command == 'mystem tagging':
+                        mystem_tokens.append(mystem_token.get_single_tagged('mystem'))
+                    elif command == 'pymorphy tagging':
+                        pymorphy_tokens.append(mystem_token.get_single_tagged('pymorphy'))
+                    elif command == 'multiple tagging':
+                        multiple_tagged_tokens.append(mystem_token.get_multiple_tagged())
+                    elif command == 'all':
+                        cleaned_tokens.append(MorphologicalToken(mystem_token.original_word).
+                                              get_cleaned())
+                        mystem_tokens.append(mystem_token.get_single_tagged('mystem'))
+                        pymorphy_tokens.append(mystem_token.get_single_tagged('pymorphy'))
+                        multiple_tagged_tokens.append(mystem_token.get_multiple_tagged())
+                    else:
+                        raise UnknownCommandError(f'NO SUCH COMMAND "{command}.'
+                                                  f'SEE THE LIST OF AVAILABLE COMMANDS.')
 
         tokens.append(cleaned_tokens)
         tokens.append(mystem_tokens)
+        tokens.append(pymorphy_tokens)
         tokens.append(multiple_tagged_tokens)
         return tokens
 
@@ -209,7 +267,19 @@ def main():
     print('DONE.\nCREATING PIPELINE INSTANCE...')
     pipe = TextProcessingPipeline(corpus_manager)
     print('DONE.\nRUNNING TEXT PROCESSING PIPELINE ON COLLECTED FILES...')
-    pipe.run()
+    commands = input('DONE.\nWAITING FOR COMMANDS. '
+                     'PRINT "help" TO SEE THE LIST OF AVAILABLE COMMANDS\n\n')
+    if commands == 'help':
+        print('AVAILABLE COMMANDS:\n— "clean text" – remove punctuation marks;\n'
+              '— "mystem tagging" – process text with MyStem tagger;\n'
+              '— "pymorphy tagging" – process text with PyMorphy tagger;\n'
+              '— "multiple tagging" – process text with both MyStem and PyMorphy taggers;\n'
+              '— "all" – one command for all mentioned above.\n'
+              'If you need some of the above mentioned commands, but not all of them, please, '
+              'separate all needed commands by using comma and space.\n'
+              'Example: clean text, multiple tagging')
+        commands = input('WAITING FOR COMMANDS.\n\n')
+    pipe.run(commands)
     print('DONE.\nPROGRAM FINISHED.')
 
 

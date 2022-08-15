@@ -9,7 +9,8 @@ from constants import ASSETS_PATH
 
 class ArtifactType:
     cleaned = 'cleaned'
-    single_tagged = 'single_tagged'
+    single_tagged_mystem = 'single_tagged (mystem)'
+    single_tagged_pymorphy = 'single_tagged (pymorphy)'
     multiple_tagged = 'multiple_tagged'
 
 
@@ -81,7 +82,8 @@ class Article:
         """
         Creates a file with a given text and corresponding name
         text: a string object to write in a created file
-        kind: variant of a file -- cleaned, single-tagged or multiple-tagged
+        kind: variant of a file -- cleaned, single-tagged with mystem or pymorphy tags
+        or multiple-tagged
         """
         with open(self.get_file_path(kind), 'w', encoding='utf-8') as file:
             file.write(text)
@@ -122,11 +124,13 @@ class Article:
     def get_file_path(self, kind: str) -> str:
         """
         Returns a proper filepath for an Article instance
-        kind: variant of a file -- cleaned, single-tagged or multiple-tagged
+        kind: variant of a file -- cleaned, single-tagged with mystem or pymorphy tags
+        or multiple-tagged
         """
         supported_kinds = (
             ArtifactType.cleaned,
-            ArtifactType.single_tagged,
+            ArtifactType.single_tagged_mystem,
+            ArtifactType.single_tagged_pymorphy,
             ArtifactType.multiple_tagged
         )
 
